@@ -1156,7 +1156,80 @@ button:focus-visible {
   color: var(--text-secondary);
 }
 
-.conclusion-content .conclusion-loading,
+/* Conclusion loading: spinner + skeleton, minimal and tactile */
+.conclusion-content .conclusion-loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+.conclusion-content .conclusion-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: conclusion-spin 0.9s cubic-bezier(0.5, 0.15, 0.4, 0.85) infinite;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 0 20px -4px rgba(168, 85, 247, 0.25);
+}
+
+.conclusion-content .conclusion-loading-label {
+  margin: 20px 0 24px 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.conclusion-content .conclusion-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.conclusion-content .conclusion-loading-line {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-hover) 0%,
+    var(--border) 35%,
+    var(--surface) 50%,
+    var(--border) 65%,
+    var(--surface-hover) 100%
+  );
+  background-size: 200% 100%;
+  animation: conclusion-shimmer 1.6s ease-in-out infinite;
+  width: 100%;
+}
+
+.conclusion-content .conclusion-loading-line--short {
+  width: 72%;
+  animation-delay: 0.15s;
+}
+
+.conclusion-content .conclusion-loading-line--medium {
+  width: 88%;
+  animation-delay: 0.3s;
+}
+
+@keyframes conclusion-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes conclusion-shimmer {
+  0%, 100% { background-position: 100% 0; }
+  50% { background-position: 0 0; }
+}
+
 .conclusion-content .conclusion-error {
   text-align: center;
   padding: 48px 32px;

@@ -95,12 +95,55 @@ export async function generateConclusion({ topic, fetchOpenRouter, model }) {
   const raw =
     (res.data?.choices?.[0]?.message?.content || "")
       .trim()
-      .replace(/^```\w*\n?|\n?```$/g, "") || "{}";
+      .replace(/^```\w*\n?|\n?```$/g, "")
+      .trim() || "{}";
 
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
+  /** Try to parse JSON; if the model wrapped it in text, find the first { ... } object. */
+  function extractJson(str) {
+    const s = str.trim();
+    try {
+      return JSON.parse(s);
+    } catch (_) {}
+    const start = s.indexOf("{");
+    if (start === -1) return null;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+    for (let i = start; i < s.length; i++) {
+      const c = s[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (inString) {
+        if (c === "\\") escape = true;
+        else if (c === inString) inString = false;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        inString = c;
+        continue;
+      }
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end === -1) return null;
+    try {
+      return JSON.parse(s.slice(start, end + 1));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const parsed = extractJson(raw);
+  if (parsed == null) {
     throw new Error("Conclusion response was not valid JSON");
   }
 

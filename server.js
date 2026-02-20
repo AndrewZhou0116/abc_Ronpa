@@ -893,10 +893,17 @@ app.post("/api/conclusion", async (req, res) => {
   } catch (err) {
     console.error("[conclusion]", err?.message || err);
     const isTimeout = err?.name === "AbortError" || /timeout|aborted/i.test(String(err?.message || ""));
-    const message = isTimeout ? "Conclusion timed out" : (err?.message || "Conclusion failed");
-    const hint = isTimeout
-      ? " Conclusion request timed out. Try again or use a faster model in OPENROUTER_MODEL_CONCLUSION."
-      : " Check OPENROUTER_API_KEY and OPENROUTER_MODEL in .env.";
+    const msg = String(err?.message || "Conclusion failed");
+    const invalidJson = /not valid JSON/i.test(msg);
+    const message = isTimeout ? "Conclusion timed out" : msg;
+    let hint = "";
+    if (isTimeout) {
+      hint = " Conclusion request timed out. Try again or use a faster model in OPENROUTER_MODEL_CONCLUSION.";
+    } else if (invalidJson) {
+      hint = " The model returned text that wasn’t valid JSON. Try again or set OPENROUTER_MODEL_CONCLUSION=openai/gpt-4o in .env.";
+    } else {
+      hint = " Check OPENROUTER_API_KEY and OPENROUTER_MODEL in .env.";
+    }
     return res.status(200).json({
       ok: false,
       error: { code: isTimeout ? 408 : 500, message: message + hint }

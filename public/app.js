@@ -1169,6 +1169,14 @@
 
   let conclusionAbortController = null;
   const CONCLUSION_FETCH_TIMEOUT_MS = 60000;
+  const CONCLUSION_LOADING_HTML = '<div class="conclusion-loading conclusion-loading-wrap" aria-busy="true" aria-live="polite">' +
+    '<div class="conclusion-loading-spinner" aria-hidden="true"></div>' +
+    '<p class="conclusion-loading-label">Analyzing topic…</p>' +
+    '<div class="conclusion-loading-skeleton">' +
+    '<span class="conclusion-loading-line"></span>' +
+    '<span class="conclusion-loading-line conclusion-loading-line--short"></span>' +
+    '<span class="conclusion-loading-line conclusion-loading-line--medium"></span>' +
+    '</div></div>';
 
   /** Conclusion cache: keyed by motion only (topic-only analysis). */
   let conclusionCache = { motion: "", status: "idle", data: null, error: null };
@@ -1248,7 +1256,7 @@
     progressId = setTimeout(() => {
       progressId = null;
       if (signal.aborted) return;
-      content.innerHTML = '<p class="conclusion-loading">Loading...</p>';
+      content.innerHTML = CONCLUSION_LOADING_HTML;
     }, 6000);
 
     function clearTimers() {
@@ -1313,7 +1321,7 @@
       return;
     }
     if (conclusionCache.motion === motion && conclusionCache.status === "loading") {
-      content.innerHTML = '<p class="conclusion-loading">Loading...</p>';
+      content.innerHTML = CONCLUSION_LOADING_HTML;
       return;
     }
     if (conclusionCache.motion === motion && conclusionCache.status === "error" && conclusionCache.error) {
@@ -1325,7 +1333,7 @@
     if (conclusionAbortController) conclusionAbortController.abort();
     conclusionAbortController = new AbortController();
     const signal = conclusionAbortController.signal;
-    content.innerHTML = '<p class="conclusion-loading">Loading...</p>';
+    content.innerHTML = CONCLUSION_LOADING_HTML;
     function stopLoading() {
       conclusionAbortController = null;
     }
