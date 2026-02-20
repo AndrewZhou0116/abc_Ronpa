@@ -18,29 +18,39 @@ export const TOKEN_BUDGETS = {
 };
 
 /**
- * Quality Ladder: budget ranges by stage. Used when useQualityLadder=true.
- * segmentBudget(stage, strictness, quality_mode) clamps to these and applies exact_sentence cap.
+ * Three-tier model routing: cheap (4o-mini) / mid (Sonnet4) / expensive (Opus4).
+ * Values can be overridden by .env: OPENROUTER_MODEL_CHEAP, OPENROUTER_MODEL_MID, OPENROUTER_MODEL_EXPENSIVE.
  */
-export const QUALITY_LADDER_BUDGETS = {
-  transition: { min: 80, max: 160 },
-  definition_request: { min: 80, max: 160 },
-  chair_procedural: { min: 80, max: 160 },
-  interjection: { min: 120, max: 220 },
-  opening_statement: { min: 180, max: 280 },
-  rebuttal: { min: 220, max: 360 },
-  crossfire: { min: 220, max: 360 },
-  closing: { min: 500, max: 900 },
-  conclusion: { min: 500, max: 900 }
+export const MODEL_TIER = {
+  cheap: "openai/gpt-4o-mini",
+  mid: "anthropic/claude-sonnet-4",
+  expensive: "anthropic/claude-opus-4"
+};
+
+/**
+ * Fixed max_tokens by stage for selectModelAndBudget. exact_sentence_count caps to QUALITY_LADDER_EXACT_SENTENCE_CAP.
+ */
+export const SEGMENT_MAX_TOKENS = {
+  transition: 120,
+  definition_request: 120,
+  chair_procedural: 120,
+  interjection: 180,
+  opening_statement: 260,
+  rebuttal: 320,
+  crossfire: 320,
+  closing: 700,
+  conclusion: 700,
+  judge_verdict: 700
 };
 
 /** When exact_sentence_count=true, cap max_tokens to avoid run-on. */
 export const QUALITY_LADDER_EXACT_SENTENCE_CAP = 220;
 
-/** Repair pass: lower temp, smaller token budget. */
+/** Repair pass: always use cheap model, low temp. */
 export const QUALITY_LADDER_REPAIR = {
   max_tokens: 250,
   temperature_min: 0.25,
-  temperature_max: 0.4
+  temperature_max: 0.35
 };
 
 /** Optional: use a cheaper model for compression only. If unset, server OPENROUTER_MODEL is used. */

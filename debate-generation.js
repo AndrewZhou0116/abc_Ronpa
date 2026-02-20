@@ -23,6 +23,7 @@ import {
 import { routeSegment } from "./budget-router.js";
 import { validateOutput } from "./segment-validator.js";
 import {
+  selectModelAndBudget,
   segmentBudget,
   buildValidatorContract,
   buildRepairPrompt,
@@ -359,36 +360,34 @@ async function callOpenRouter(body, apiKey, opts = {}) {
   throw lastErr;
 }
 
-/** Simple strictness 0–10 for Quality Ladder (exact_sentence + must_hook + banlist + context). */
-function ladderStrictness(segment, context) {
-  let s = 0;
-  const sub = segment?.roleSubType || "";
-  if (sub === "interjection" || sub === "closingChair") s += 3;
-  if (/rebuttal|summary/.test(sub)) s += 2;
-  const banlist = segment.speakerId && ANTI_HOMOGENIZATION_BANLIST[segment.speakerId];
-  if (Array.isArray(banlist) && banlist.length >= 10) s += 2;
-  const n = (context.recentTurns && context.recentTurns.length) || 0;
-  if (n > 12) s += 2;
-  return Math.min(10, s);
-}
-
 /**
- * Quality Ladder: 4o-mini → validate → repair (4o-mini) → validate → upgrade (Opus) only if needed.
- * Logs: chosen_model, max_tokens, temperature, validator pass/fail, repair_used, upgraded_to_opus.
+ * Quality Ladder: generate with selected model (mid/cheap/expensive) → validate → repair (cheap) → upgrade (expensive) only if needed.
+ * Logs: [SEGMENT], [VALIDATE], [REPAIR], [UPGRADE].
  */
 async function runQualityLadder(topic, segment, context, opts) {
   const apiKey = opts.apiKey;
   const cheapModel = (opts.cheapModel || "openai/gpt-4o-mini").trim();
+  const midModel = (opts.midModel || "anthropic/claude-sonnet-4").trim();
   const expensiveModel = (opts.expensiveModel || "anthropic/claude-opus-4").trim();
-  const quality_mode = context.streamMode ? "show" : (context.detailMode ? "final" : "draft");
-  const strictness = ladderStrictness(segment, context);
-  const stage = getStageKeyForSegment(segment);
-  const exact_sentence_count = segment.roleSubType === "interjection" || segment.roleSubType === "closingChair";
-  const budget = segmentBudget(stage, strictness, quality_mode, { exact_sentence_count });
+  const modelFallbacks = Array.isArray(opts.modelFallbacks) ? opts.modelFallbacks : [];
+
+  const banlist = segment.speakerId && ANTI_HOMOGENIZATION_BANLIST[segment.speakerId];
+  const banlist_size = Array.isArray(banlist) ? banlist.length : 0;
+  const ladderContext = { ...context, banlist_size };
+
+  const selected = selectModelAndBudget(segment, ladderContext, {
+    cheap: cheapModel,
+    mid: midModel,
+    expensive: expensiveModel
+  });
+  const { model: selectedModel, max_tokens, temperature, strictness, stage } = selected;
+
+  console.log(`[SEGMENT] id=${segment.id || segment.speakerId} stage=${stage} model=${selectedModel} max_tokens=${max_tokens} temp=${temperature}`);
+
   const contractOpts = {
     forbiddenPhrases: FORBIDDEN_PHRASES,
     bannedStems: BANNED_STEM_REGEXES,
-    bannedWordsSpeaker: segment.speakerId && ANTI_HOMOGENIZATION_BANLIST[segment.speakerId] ? ANTI_HOMOGENIZATION_BANLIST[segment.speakerId] : []
+    bannedWordsSpeaker: banlist || []
   };
   const contract = buildValidatorContract(segment, context, contractOpts);
 
@@ -396,67 +395,76 @@ async function runQualityLadder(topic, segment, context, opts) {
     bannedWordsSpeaker: contractOpts.bannedWordsSpeaker
   });
 
-  const callOnce = async (model, max_tokens, temperature, passLabel) => {
-    const body = { model, max_tokens, temperature, messages: [{ role: "system", content: system }, { role: "user", content: user }] };
-    const res = await callOpenRouter(body, apiKey, {});
+  const callOnce = async (model, maxTok, temp) => {
+    const body = { model, max_tokens: maxTok, temperature: temp, messages: [{ role: "system", content: system }, { role: "user", content: user }] };
+    const res = await callOpenRouter(body, apiKey, { modelFallbacks });
     const text = (res && res.text) ? res.text.trim() : "";
     const validation = validateOutput(text, contract);
-    console.log(`[LADDER] ${segment.speakerId} ${segment.roleSubType || ""} ${passLabel} model=${model} max_tokens=${max_tokens} temp=${temperature} validator=${validation.pass ? "pass" : "fail"} ${!validation.pass ? "failures=" + JSON.stringify(validation.failures.map((f) => f.rule)) : ""}`);
     return { text, validation };
   };
 
-  const repairOnce = async (model, currentText, failList) => {
+  const repairOnce = async (currentText, failList) => {
     const repairUser = buildRepairPrompt(contract, context.previousOpponentText || "", failList || [], currentText);
     const rep = getRepairParams();
-    const body = { model, max_tokens: rep.max_tokens, temperature: rep.temperature, messages: [{ role: "system", content: "You fix a debate turn to satisfy the contract. Output only the speech." }, { role: "user", content: repairUser }] };
-    const res = await callOpenRouter(body, apiKey, {});
+    const body = { model: cheapModel, max_tokens: rep.max_tokens, temperature: rep.temperature, messages: [{ role: "system", content: "You fix a debate turn to satisfy the contract. Output only the speech." }, { role: "user", content: repairUser }] };
+    const res = await callOpenRouter(body, apiKey, { modelFallbacks });
     const repaired = (res && res.text) ? res.text.trim() : "";
     const revalid = validateOutput(repaired, contract);
-    console.log(`[LADDER] ${segment.speakerId} repair model=${model} validator=${revalid.pass ? "pass" : "fail"}`);
+    console.log(`[REPAIR] used=true model=${cheapModel} validator=${revalid.pass ? "pass" : "fail"}`);
     return { text: repaired, validation: revalid };
   };
 
   let validation;
   let text = "";
+  let repairUsed = false;
+  let upgradedToOpus = false;
 
   if (shouldUpgradeImmediately(segment, context, strictness)) {
-    const out = await callOnce(expensiveModel, Math.min(budget.max_tokens + 100, 900), budget.temperature, "upgrade_first");
+    const out = await callOnce(expensiveModel, Math.min(max_tokens + 100, 900), Math.min(temperature, 0.5));
     text = out.text;
     validation = out.validation;
+    console.log(`[VALIDATE] pass=${validation.pass} reasons=${validation.pass ? "[]" : JSON.stringify(validation.failures.map((f) => f.rule + ":" + (f.detail || "")))}`);
     if (!validation.pass) {
-      const rep = await repairOnce(expensiveModel, text, validation.failures);
+      const rep = await repairOnce(text, validation.failures);
       if (rep.validation.pass) {
         text = rep.text;
         validation = rep.validation;
+        repairUsed = true;
       }
     }
-    console.log(`[LADDER] ${segment.speakerId} chosen_model=${expensiveModel} upgraded_to_opus=true`);
+    upgradedToOpus = true;
+    console.log(`[UPGRADE] to_opus=true (conclusion/strict)`);
     return text;
   }
 
-  const out = await callOnce(cheapModel, budget.max_tokens, budget.temperature, "first");
+  const out = await callOnce(selectedModel, max_tokens, temperature);
   text = out.text;
   validation = out.validation;
+  console.log(`[VALIDATE] pass=${validation.pass} reasons=${validation.pass ? "[]" : JSON.stringify(validation.failures.map((f) => f.rule + ":" + (f.detail || "")))}`);
 
   if (validation.pass) {
-    console.log(`[LADDER] ${segment.speakerId} chosen_model=${cheapModel} repair_used=false upgraded_to_opus=false`);
+    console.log(`[REPAIR] used=false`);
+    console.log(`[UPGRADE] to_opus=false`);
     return text;
   }
 
-  const rep = await repairOnce(cheapModel, text, validation.failures);
+  const rep = await repairOnce(text, validation.failures);
+  repairUsed = true;
   if (rep.validation.pass) {
-    console.log(`[LADDER] ${segment.speakerId} chosen_model=${cheapModel} repair_used=true upgraded_to_opus=false`);
+    console.log(`[UPGRADE] to_opus=false`);
     return rep.text;
   }
 
-  const upgrade = await callOnce(expensiveModel, Math.min(budget.max_tokens + 100, 900), Math.min(budget.temperature, 0.5), "upgrade");
+  upgradedToOpus = true;
+  const upgrade = await callOnce(expensiveModel, Math.min(max_tokens + 100, 900), 0.5);
   text = upgrade.text;
   validation = upgrade.validation;
+  console.log(`[VALIDATE] pass=${validation.pass} reasons=${validation.pass ? "[]" : JSON.stringify(validation.failures.map((f) => f.rule + ":" + (f.detail || "")))} (after upgrade)`);
   if (!validation.pass) {
-    const repOpus = await repairOnce(expensiveModel, text, validation.failures);
+    const repOpus = await repairOnce(text, validation.failures);
     if (repOpus.validation.pass) text = repOpus.text;
   }
-  console.log(`[LADDER] ${segment.speakerId} chosen_model=${expensiveModel} repair_used=true upgraded_to_opus=true`);
+  console.log(`[UPGRADE] to_opus=true (mid+repair failed)`);
   return text;
 }
 
@@ -468,7 +476,8 @@ export async function generateSegmentText(topic, segment, context = {}, opts = {
   const apiKey = opts.apiKey || "";
   const cheapModel = (opts.cheapModel || "").trim();
   const expensiveModel = (opts.expensiveModel || "").trim();
-  const useQualityLadder = DEBATE_CONFIG.useQualityLadder === true && cheapModel && expensiveModel;
+  const midModelOpt = (opts.midModel || "").trim();
+  const useQualityLadder = DEBATE_CONFIG.useQualityLadder === true && cheapModel && midModelOpt && expensiveModel;
   const useBudgetRouter = !useQualityLadder && cheapModel && expensiveModel;
   const primaryModel = useBudgetRouter
     ? null
@@ -478,7 +487,13 @@ export async function generateSegmentText(topic, segment, context = {}, opts = {
   }
 
   if (useQualityLadder) {
-    const ladderText = await runQualityLadder(topic, segment, context, { apiKey, cheapModel, expensiveModel });
+    const ladderText = await runQualityLadder(topic, segment, context, {
+      apiKey,
+      cheapModel,
+      midModel: midModelOpt,
+      expensiveModel,
+      modelFallbacks: Array.isArray(opts.modelFallbacks) ? opts.modelFallbacks : []
+    });
     if (ladderText && DEBATE_CONFIG.sanitizeOutputForbidden) {
       return sanitizeDebateOutput(ladderText, segment);
     }

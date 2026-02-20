@@ -1154,7 +1154,7 @@
   }
 
   let conclusionAbortController = null;
-  const CONCLUSION_FETCH_TIMEOUT_MS = 40000;
+  const CONCLUSION_FETCH_TIMEOUT_MS = 8000;
 
   /** Conclusion cache: pre-fetched so clicking Conclusion opens instantly when ready. */
   let conclusionCache = { motion: "", turnCount: -1, status: "idle", data: null, error: null };
@@ -1236,7 +1236,7 @@
     timeoutId = setTimeout(() => {
       timeoutId = null;
       if (conclusionAbortController) conclusionAbortController.abort();
-      content.innerHTML = '<p class="conclusion-error">Request timed out (~40s).</p><button type="button" class="conclusion-retry-btn" id="conclusionRetryBtn">Retry</button>';
+      content.innerHTML = '<p class="conclusion-error">Request timed out (8s). Try again or use a faster model.</p><button type="button" class="conclusion-retry-btn" id="conclusionRetryBtn">Retry</button>';
       document.getElementById("conclusionRetryBtn")?.addEventListener("click", () => openConclusionModal());
       showToast("Conclusion timed out");
     }, CONCLUSION_FETCH_TIMEOUT_MS);
@@ -1244,7 +1244,7 @@
     progressId = setTimeout(() => {
       progressId = null;
       if (signal.aborted) return;
-      content.innerHTML = '<p class="conclusion-loading">Still generating… (may take up to 40s)</p>';
+      content.innerHTML = '<p class="conclusion-loading">Still generating… (max 8s)</p>';
     }, 6000);
 
     function clearTimers() {
@@ -1331,7 +1331,7 @@
     if (conclusionAbortController) conclusionAbortController.abort();
     conclusionAbortController = new AbortController();
     const signal = conclusionAbortController.signal;
-    content.innerHTML = '<p class="conclusion-loading">Generating conclusion…</p>';
+    content.innerHTML = '<p class="conclusion-loading">Generating conclusion… (max 8s)</p>';
     function stopLoading() {
       conclusionAbortController = null;
     }
@@ -1372,19 +1372,6 @@
   }
 
   setupConclusionModal();
-
-  let conclusionTopicDebounce = null;
-  if (topicInput) {
-    topicInput.addEventListener("input", () => {
-      if (conclusionTopicDebounce) clearTimeout(conclusionTopicDebounce);
-      const motion = (topicInput.value || "").trim();
-      if (motion.length < 3) return;
-      conclusionTopicDebounce = setTimeout(() => {
-        conclusionTopicDebounce = null;
-        startBackgroundConclusion(motion, []);
-      }, 2000);
-    });
-  }
 
   fetch(`${API_BASE}/api/ping`)
     .then((r) => { if (!r.ok) throw new Error("ping not ok"); })

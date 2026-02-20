@@ -29,9 +29,9 @@ const SCHEMA_DESC = `JSON schema (output this structure; 1–2 items per section
 }
 Rules: Max 2 items per section. argument_map: 2–3 nodes. literature: 0–2, media: 0–1. turnRefs optional.`;
 
-/** Build user prompt: topic + transcript (trimmed for speed). */
-const CONCLUSION_MAX_TURNS_IN_PROMPT = 30;
-const CONCLUSION_CHARS_PER_TURN = 280;
+/** Build user prompt: topic + transcript (trimmed for speed; smaller = faster API response). */
+const CONCLUSION_MAX_TURNS_IN_PROMPT = 15;
+const CONCLUSION_CHARS_PER_TURN = 200;
 
 function buildConclusionPrompt(topic, turns) {
   const trimmed = turns.length > CONCLUSION_MAX_TURNS_IN_PROMPT
@@ -105,7 +105,7 @@ export async function generateConclusion({ topic, turns, fetchOpenRouter, model 
   const user = buildConclusionPrompt(topic, turns);
 
   const res = await fetchOpenRouter({
-    max_tokens: 1400,
+    max_tokens: 1000,
     messages: [
       { role: "system", content: CONCLUSION_SYSTEM + "\n\n" + SCHEMA_DESC },
       { role: "user", content: user }

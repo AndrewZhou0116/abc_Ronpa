@@ -1,14 +1,15 @@
 /**
- * Quality Ladder: default 4o-mini, validate, repair once with 4o-mini, upgrade to Opus only when necessary.
- * Token budget and repair params from debate-config.js (QUALITY_LADDER_BUDGETS, QUALITY_LADDER_REPAIR).
+ * Quality Ladder: three-tier routing (cheap / mid / expensive).
+ * selectModelAndBudget(segment) → { model, max_tokens, temperature }.
  */
 import {
-  QUALITY_LADDER_BUDGETS,
+  SEGMENT_MAX_TOKENS,
   QUALITY_LADDER_EXACT_SENTENCE_CAP,
-  QUALITY_LADDER_REPAIR
+  QUALITY_LADDER_REPAIR,
+  MODEL_TIER
 } from "./debate-config.js";
 
-/** Map roleSubType to stage key for budget. */
+/** Map segment to stage key. */
 function getStageKey(segment) {
   const roleType = segment?.roleType || "debater";
   const sub = segment?.roleSubType || "";
@@ -20,27 +21,83 @@ function getStageKey(segment) {
   return "rebuttal";
 }
 
+/** Strictness 0–10: +3 exact_sentence, +2 must_hook, +2 banlist>=20, +2 context=long, +1 quality_mode=final. */
+function computeStrictness(segment, context, opts = {}) {
+  let s = 0;
+  if (opts.exact_sentence_count) s += 3;
+  if (opts.must_hook) s += 2;
+  if ((opts.banlist_size || 0) >= 20) s += 2;
+  if (opts.context_length === "long") s += 2;
+  if (opts.quality_mode === "final") s += 1;
+  return Math.min(10, s);
+}
+
 /**
- * Token budget for one segment. Used by Quality Ladder.
- * @param {string} stage - one of transition, chair_procedural, interjection, opening_statement, rebuttal, crossfire, closing, conclusion
- * @param {number} strictness - 0..10
- * @param {string} quality_mode - "draft" | "show" | "final"
- * @param {{ exact_sentence_count?: boolean }} [opts]
- * @returns {{ max_tokens: number, temperature: number }}
+ * Three-tier model + budget selection. Rules:
+ * - conclusion / judge_verdict → expensive
+ * - strictness >= 8 → expensive
+ * - strictness 5–7 → mid
+ * - strictness <=4: short segment (transition/definition/chair_procedural) → cheap; else → mid
+ * max_tokens: per SEGMENT_MAX_TOKENS; exact_sentence_count caps to 220.
+ * temperature: exact_sentence or banlist>=20 → 0.40; mid 0.55, opus 0.50, cheap 0.60; repair 0.25–0.35.
  */
-export function segmentBudget(stage, strictness = 0, quality_mode = "show", opts = {}) {
-  const range = QUALITY_LADDER_BUDGETS[stage] || QUALITY_LADDER_BUDGETS.rebuttal;
-  let max_tokens = Math.round((range.min + range.max) / 2);
-  if (quality_mode === "final") max_tokens = Math.round(max_tokens * 1.1);
-  if (strictness >= 7) max_tokens = Math.round(max_tokens * 0.95);
-  max_tokens = Math.max(range.min, Math.min(range.max, max_tokens));
-  if (opts.exact_sentence_count) {
-    max_tokens = Math.min(max_tokens, QUALITY_LADDER_EXACT_SENTENCE_CAP);
+export function selectModelAndBudget(segment, context = {}, models = {}) {
+  const cheap = (models.cheap || MODEL_TIER.cheap).trim();
+  const mid = (models.mid || MODEL_TIER.mid).trim();
+  const expensive = (models.expensive || MODEL_TIER.expensive).trim();
+
+  const stage = getStageKey(segment);
+  const sub = segment?.roleSubType || "";
+  const quality_mode = context.streamMode ? "show" : (context.detailMode ? "final" : "draft");
+  const exact_sentence_count = sub === "interjection" || sub === "closingChair";
+  const must_hook = /rebuttal|summary|statement/.test(sub);
+  const banlist_size = typeof context.banlist_size === "number" ? context.banlist_size : 0;
+  const contextLen = (context.recentTurns && context.recentTurns.length) || 0;
+  const context_length = contextLen > 12 ? "long" : contextLen > 6 ? "medium" : "short";
+
+  const opts = {
+    exact_sentence_count,
+    must_hook,
+    banlist_size,
+    context_length,
+    quality_mode
+  };
+  const strictness = computeStrictness(segment, context, opts);
+
+  let model = mid;
+  if (sub === "judge_verdict" || stage === "closing" || sub === "closingChair") {
+    model = expensive;
+  } else if (strictness >= 8) {
+    model = expensive;
+  } else if (strictness >= 5 && strictness <= 7) {
+    model = mid;
+  } else if (strictness <= 4) {
+    if (stage === "transition" || stage === "definition_request" || stage === "chair_procedural") {
+      model = cheap;
+    } else {
+      model = mid;
+    }
   }
+
+  let max_tokens = SEGMENT_MAX_TOKENS[stage] ?? SEGMENT_MAX_TOKENS.rebuttal;
+  if (exact_sentence_count) max_tokens = Math.min(max_tokens, QUALITY_LADDER_EXACT_SENTENCE_CAP);
+
   let temperature = 0.55;
-  if (opts.exact_sentence_count || strictness >= 6) temperature = 0.45;
-  else if (quality_mode === "final") temperature = 0.5;
-  if (strictness >= 8) temperature = 0.4;
+  if (exact_sentence_count || banlist_size >= 20) temperature = 0.4;
+  else if (model === expensive) temperature = 0.5;
+  else if (model === mid) temperature = 0.55;
+  else temperature = 0.6;
+
+  return { model, max_tokens, temperature, strictness, stage };
+}
+
+/** Backward compat: segmentBudget for callers that only need max_tokens + temperature. */
+export function segmentBudget(stage, strictness = 0, quality_mode = "show", opts = {}) {
+  let max_tokens = SEGMENT_MAX_TOKENS[stage] ?? SEGMENT_MAX_TOKENS.rebuttal;
+  if (opts.exact_sentence_count) max_tokens = Math.min(max_tokens, QUALITY_LADDER_EXACT_SENTENCE_CAP);
+  let temperature = 0.55;
+  if (opts.exact_sentence_count || (opts.banlist_size >= 20)) temperature = 0.4;
+  else if (strictness >= 8) temperature = 0.5;
   return { max_tokens, temperature };
 }
 
@@ -110,12 +167,11 @@ export function getRepairParams() {
   };
 }
 
-/** Should we upgrade to Opus for this segment before trying? (high visibility or very high strictness) */
+/** Start with expensive (Opus) without trying mid: conclusion, judge_verdict, or strictness>=8 only. */
 export function shouldUpgradeImmediately(segment, context = {}, strictness = 0) {
   const sub = segment?.roleSubType || "";
-  const quality_mode = context.streamMode ? "show" : (context.detailMode ? "final" : "draft");
-  if (quality_mode === "final") return true;
-  if (/conclusion|closingChair|pro_summary|con_summary/.test(sub)) return true;
+  const stage = getStageKey(segment);
+  if (stage === "closing" || sub === "closingChair" || sub === "judge_verdict") return true;
   if (strictness >= 8) return true;
   return false;
 }

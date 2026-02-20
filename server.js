@@ -15,10 +15,8 @@ import { DEBATE_CONFIG } from "./debate-config.js";
 import {
   buildJudgeRulingUserPrompt,
   buildCorrectionLineUserPrompt,
-  buildClarificationUserPrompt,
   JUDGE_RULING_SYSTEM,
   CORRECTION_LINE_SYSTEM,
-  CLARIFICATION_SYSTEM,
   OBJECTION_LINE_PROMPT,
   OBJECTION_LINE_STYLE_HINTS
 } from "./prompts.js";
@@ -49,14 +47,15 @@ const OPENROUTER_MODEL_FALLBACKS = [
   "openai/gpt-4o"
 ].filter((m) => m && m !== OPENROUTER_MODEL);
 
-/** Optional: faster model for conclusion only (e.g. anthropic/claude-sonnet-4). If unset, uses OPENROUTER_MODEL. */
-const OPENROUTER_MODEL_CONCLUSION = (process.env.OPENROUTER_MODEL_CONCLUSION || "").trim() || OPENROUTER_MODEL;
-
-/** Budget router: cheap model for low-risk segments (saves cost). If both set, debate stream uses router. */
+/** Three-tier routing: cheap (repair/short) / mid (main) / expensive (conclusion/strict). */
 const OPENROUTER_MODEL_CHEAP = (process.env.OPENROUTER_MODEL_CHEAP || "openai/gpt-4o-mini").trim();
-const OPENROUTER_MODEL_EXPENSIVE = (process.env.OPENROUTER_MODEL_EXPENSIVE || "").trim() || OPENROUTER_MODEL;
+const OPENROUTER_MODEL_MID = (process.env.OPENROUTER_MODEL_MID || "anthropic/claude-sonnet-4").trim();
+const OPENROUTER_MODEL_EXPENSIVE = (process.env.OPENROUTER_MODEL_EXPENSIVE || "anthropic/claude-opus-4").trim();
 
-console.log("[MODEL]", OPENROUTER_MODEL, OPENROUTER_MODEL_CONCLUSION !== OPENROUTER_MODEL ? "(conclusion: " + OPENROUTER_MODEL_CONCLUSION + ")" : "", OPENROUTER_MODEL_CHEAP ? "(budget: cheap=" + OPENROUTER_MODEL_CHEAP + " expensive=" + OPENROUTER_MODEL_EXPENSIVE + ")" : "");
+/** Conclusion: speed + quality. Default openai/gpt-4o for fast response within 8s; override with OPENROUTER_MODEL_CONCLUSION. */
+const OPENROUTER_MODEL_CONCLUSION = (process.env.OPENROUTER_MODEL_CONCLUSION || "").trim() || "openai/gpt-4o";
+
+console.log("[MODEL]", OPENROUTER_MODEL, OPENROUTER_MODEL_CONCLUSION !== OPENROUTER_MODEL ? "(conclusion: " + OPENROUTER_MODEL_CONCLUSION + ")" : "", "(tier: cheap=" + OPENROUTER_MODEL_CHEAP + " mid=" + OPENROUTER_MODEL_MID + " expensive=" + OPENROUTER_MODEL_EXPENSIVE + ")");
 if (!OPENROUTER_API_KEY) {
   console.warn("[ENV] OPENROUTER_API_KEY not set. Set it in .env (see .env.example).");
 }
@@ -273,24 +272,6 @@ async function callCorrectionLine(topic, segment, objectionType, excerpt) {
   return line || null;
 }
 
-/** Call OpenRouter for clarification (1–2 sentences) after ruling. SUSTAINED → definition/verifiable point; OVERRULED → continue advancing. */
-async function callClarificationLine(topic, targetSpeakerId, objectionType, excerpt, ruling) {
-  const speakerLabel = SPEAKER_DISPLAY_NAMES[targetSpeakerId] || targetSpeakerId;
-  const side = targetSpeakerId && targetSpeakerId.startsWith("pro") ? "PRO" : "CON";
-  const userPrompt = buildClarificationUserPrompt(topic, speakerLabel, side, objectionType, excerpt, ruling);
-  const result = await fetchOpenRouterWithFallback({
-    max_tokens: 64,
-    messages: [
-      { role: "system", content: CLARIFICATION_SYSTEM },
-      { role: "user", content: userPrompt }
-    ]
-  });
-  if (!result.ok) return null;
-  const data = result.data;
-  const line = (data.choices?.[0]?.message?.content || "").trim().replace(/\n+/g, " ").slice(0, 160);
-  return line || null;
-}
-
 /** Call OpenRouter for one in-character objection line. */
 async function callAIObjectionLine(speakerId, objectionType) {
   const styleHint = OBJECTION_LINE_STYLE_HINTS[speakerId] || "One short objection line, in character.";
@@ -423,7 +404,11 @@ async function generateSegmentTextServer(topic, segment, context = {}) {
     sanitizeOutput: DEBATE_CONFIG.sanitizeOutputForbidden,
     logPromptSpeakers: DEBATE_CONFIG.logPromptForSpeakers
   };
-  if (OPENROUTER_MODEL_CHEAP && OPENROUTER_MODEL_EXPENSIVE && OPENROUTER_MODEL_CHEAP !== OPENROUTER_MODEL_EXPENSIVE) {
+  if (DEBATE_CONFIG.useQualityLadder && OPENROUTER_MODEL_CHEAP && OPENROUTER_MODEL_MID && OPENROUTER_MODEL_EXPENSIVE) {
+    opts.cheapModel = OPENROUTER_MODEL_CHEAP;
+    opts.midModel = OPENROUTER_MODEL_MID;
+    opts.expensiveModel = OPENROUTER_MODEL_EXPENSIVE;
+  } else if (OPENROUTER_MODEL_CHEAP && OPENROUTER_MODEL_EXPENSIVE && OPENROUTER_MODEL_CHEAP !== OPENROUTER_MODEL_EXPENSIVE) {
     opts.cheapModel = OPENROUTER_MODEL_CHEAP;
     opts.expensiveModel = OPENROUTER_MODEL_EXPENSIVE;
   }
@@ -725,6 +710,7 @@ app.get("/api/stream", async (req, res) => {
       }
       recentTurnsList.push({ speakerId: segment.speakerId, label: segment.label, text: safeText });
 
+      // Split on full-width 。！？, half-width !?, and newline only (not on .) so streamed chunks stay longer.
       const sentences = safeText
         .split(/(?<=[。！？!？\n])/)
         .map((s) => s.trim())
@@ -872,10 +858,11 @@ app.get("/api/stream", async (req, res) => {
   }
 });
 
-const CONCLUSION_MAX_TURNS = 80;
-const CONCLUSION_MAX_CHARS_PER_TURN = 400;
-const CONCLUSION_TIMEOUT_MS = 38000;       // ~38s so UI can show result or retry sooner
-const CONCLUSION_REQUEST_TIMEOUT_MS = 35000;
+const CONCLUSION_MAX_TURNS = 25;
+const CONCLUSION_MAX_CHARS_PER_TURN = 250;
+/** User-accepted max wait 8s: fail fast so UI can show retry; keep request timeout slightly under. */
+const CONCLUSION_TIMEOUT_MS = 8000;
+const CONCLUSION_REQUEST_TIMEOUT_MS = 7500;
 
 /** POST /api/conclusion — Single-call high-quality report. */
 app.post("/api/conclusion", async (req, res) => {
@@ -923,7 +910,7 @@ app.post("/api/conclusion", async (req, res) => {
     const isTimeout = err?.name === "AbortError" || /timeout|aborted/i.test(String(err?.message || ""));
     const message = isTimeout ? "Conclusion timed out" : (err?.message || "Conclusion failed");
     const hint = isTimeout
-      ? " Try again or use a faster model (e.g. OPENROUTER_MODEL=anthropic/claude-sonnet-4)."
+      ? " Conclusion is capped at 8s. Set OPENROUTER_MODEL_CONCLUSION to a fast model (e.g. anthropic/claude-sonnet-4) or retry."
       : " Check OPENROUTER_API_KEY and OPENROUTER_MODEL in .env.";
     return res.status(200).json({
       ok: false,
