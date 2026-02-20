@@ -97,7 +97,7 @@ export function buildLadderPrompt(topic, segment, context = {}, options = {}) {
   const voiceLine = voiceprint && typeof voiceprint.summary === "string" ? `Voice: ${voiceprint.summary}` : "";
 
   const user = contract + "\n\n" + bannedLine + (voiceLine ? "\n" + voiceLine : "") + "\n\n" + contextBlock + "\nOutput ONLY the speech text.";
-  const system = persona;
+  const system = persona + "\n\nOptional: if a concept or work would sharpen your point, you may name it in passing; never cite for the sake of it.";
   return { system, user };
 }
 

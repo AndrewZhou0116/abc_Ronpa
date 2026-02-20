@@ -1500,7 +1500,7 @@ button:focus-visible {
   }
 }
 
-/* ─── Ronpa intro overlay (論破！ — Ace Attorney style) ───────────────────── */
+/* ─── Ronpa intro overlay (Ace Attorney style) ─────────────────────────────── */
 .ronpa-intro {
   position: fixed;
   inset: 0;

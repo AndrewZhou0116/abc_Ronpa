@@ -72,13 +72,13 @@ const USER_TURN_POPUP_BEFORE_MS = 2000;
 /** Per-stream session for AI objection state (debater vs debater). */
 const streamSessions = new Map();
 const SPEAKER_DISPLAY_NAMES = {
-  chair: "Makima (Chair)",
-  pro1: "Donald Trump (Pro 1)",
-  pro2: "Light Yagami (Pro 2)",
-  pro3: "Immanuel Kant (Pro 3)",
-  con1: "Gus Fring (Con 1)",
-  con2: "Albert Camus (Con 2)",
-  con3: "Isaac Newton (Con 3)"
+  chair: "Makima",
+  pro1: "Donald Trump",
+  pro2: "Light Yagami",
+  pro3: "Immanuel Kant",
+  con1: "Gus Fring",
+  con2: "Albert Camus",
+  con3: "Isaac Newton"
 };
 const AI_OBJECTION_TOKENS_PER_SIDE = 2;
 

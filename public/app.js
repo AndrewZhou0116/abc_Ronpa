@@ -29,15 +29,15 @@
 
   const characterIds = ["chair", "pro1", "pro2", "pro3", "con1", "con2", "con3"];
 
-  /** Speaker display names for transcript and current-speech bar: full name + side label. */
+  /** Speaker display names for transcript and current-speech bar (name only; role shown separately). */
   const SPEAKER_DISPLAY_NAMES = {
-    chair: "Makima (Chair)",
-    pro1: "Donald Trump (Pro 1)",
-    pro2: "Light Yagami (Pro 2)",
-    pro3: "Immanuel Kant (Pro 3)",
-    con1: "Gus Fring (Con 1)",
-    con2: "Albert Camus (Con 2)",
-    con3: "Isaac Newton (Con 3)"
+    chair: "Makima",
+    pro1: "Donald Trump",
+    pro2: "Light Yagami",
+    pro3: "Immanuel Kant",
+    con1: "Gus Fring",
+    con2: "Albert Camus",
+    con3: "Isaac Newton"
   };
   function getDisplayName(speakerId, fallbackLabel) {
     return (speakerId && SPEAKER_DISPLAY_NAMES[speakerId]) || fallbackLabel || "Speaker";
@@ -75,8 +75,8 @@
   let typewriterTimeouts = [];
   let typewriterAborted = false;
   let ttsMode = "browser";
-  /** Turns stored for Conclusion (live transcript). */
-  let transcriptTurnsForConclusion = [];
+  /** Transcript turns (for segment indexing only). Topic Analysis is topic-only and does not use this. */
+  let transcriptTurns = [];
 
   // ─── TTS config: voice mode, speech rate, interrupt behavior, debug ─────────
   const TTS_CONFIG = (typeof window !== "undefined" && window.DEBATE_TTS_CONFIG) || {
@@ -280,7 +280,7 @@
     if (isCurrent) div.classList.add("transcript-entry--current");
     const type = entryType || "speech";
     if (type !== "speech") div.classList.add("transcript-entry--" + type);
-    const segmentIndex = transcriptTurnsForConclusion.length;
+    const segmentIndex = transcriptTurns.length;
     div.setAttribute("data-segment-index", String(segmentIndex));
 
     const header = document.createElement("div");
@@ -292,7 +292,7 @@
 
     const roleTag = document.createElement("span");
     roleTag.className = "transcript-entry__role-tag";
-    roleTag.textContent = speakerId === "chair" ? "JUDGE" : (speakerId ? speakerId.toUpperCase().replace(/(\d)$/, " $1") : "");
+    roleTag.textContent = speakerId === "chair" ? "" : (speakerId ? speakerId.toUpperCase().replace(/(\d)$/, " $1") : "");
 
     const sideBadge = document.createElement("span");
     sideBadge.className = "transcript-entry__side-badge";
@@ -635,12 +635,12 @@
       let span = null;
       if (!item.isObjection && !item.isRuling) {
         span = createTranscriptLine(getDisplayName(item.speakerId, item.speakerLabel), item.roleType || "debater", side, item.speakerId, true, "speech", speechMeta);
-        transcriptTurnsForConclusion.push({
+        transcriptTurns.push({
           speakerId: item.speakerId || undefined,
           speakerLabel: getDisplayName(item.speakerId, item.speakerLabel),
           text: text || "",
           side: side || sideFromSpeakerId(item.speakerId),
-          turnIndex: transcriptTurnsForConclusion.length + 1,
+          turnIndex: transcriptTurns.length + 1,
           type: "speech",
           meta: speechMeta || undefined
         });
@@ -767,12 +767,12 @@
     const type = entryType || "speech";
     const textSpan = createTranscriptLine(displayName, roleType || "debater", side, speakerId, false, type, meta);
     textSpan.textContent = text || "";
-    transcriptTurnsForConclusion.push({
+    transcriptTurns.push({
       speakerId: speakerId || undefined,
       speakerLabel: displayName,
       text: text || "",
       side: side || sideFromSpeakerId(speakerId),
-      turnIndex: transcriptTurnsForConclusion.length + 1,
+      turnIndex: transcriptTurns.length + 1,
       type,
       meta: meta || undefined
     });
@@ -1030,7 +1030,7 @@
   function clearTranscript() {
     transcriptEl.innerHTML = "";
     clearCurrentSpeechBar();
-    transcriptTurnsForConclusion = [];
+    transcriptTurns = [];
     const jumpBtn = document.getElementById("transcriptJumpToLatest");
     if (jumpBtn) jumpBtn.remove();
   }
