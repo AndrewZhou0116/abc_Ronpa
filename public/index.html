@@ -183,6 +183,13 @@
       </div>
     </div>
 
+    <!-- Novel concept popover: appears when a debater uses a glossary term -->
+    <div id="conceptPopover" class="concept-popover" hidden aria-live="polite" role="status">
+      <div class="concept-popover__title" id="conceptPopoverTitle"></div>
+      <div class="concept-popover__body" id="conceptPopoverBody"></div>
+      <button type="button" class="concept-popover__close" id="conceptPopoverClose" aria-label="Close">&times;</button>
+    </div>
+
     <script>window.__API_BASE__ = "";</script>
     <script src="app.js"></script>
   </body>

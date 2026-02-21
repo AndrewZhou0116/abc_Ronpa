@@ -17,6 +17,51 @@
   const voiceInputBtn = document.getElementById("voiceInputBtn");
   const endSpeakBtn = document.getElementById("endSpeakBtn");
   const stageContainer = document.getElementById("stageContainer");
+  const conceptPopoverEl = document.getElementById("conceptPopover");
+  const conceptPopoverTitleEl = document.getElementById("conceptPopoverTitle");
+  const conceptPopoverBodyEl = document.getElementById("conceptPopoverBody");
+  const conceptPopoverCloseBtn = document.getElementById("conceptPopoverClose");
+
+  const CONCEPT_POPOVER_DURATION_MS = 6000;
+  let conceptPopoverHideTimer = null;
+
+  function hideConceptPopover() {
+    if (conceptPopoverHideTimer) {
+      clearTimeout(conceptPopoverHideTimer);
+      conceptPopoverHideTimer = null;
+    }
+    if (conceptPopoverEl) conceptPopoverEl.hidden = true;
+  }
+
+  function showConceptPopover(anchorElement, concept, explanation) {
+    if (!conceptPopoverEl || !conceptPopoverTitleEl || !conceptPopoverBodyEl || !concept || !explanation) return;
+    hideConceptPopover();
+    conceptPopoverTitleEl.textContent = concept;
+    conceptPopoverBodyEl.textContent = explanation;
+    conceptPopoverEl.hidden = false;
+    const rect = anchorElement ? anchorElement.getBoundingClientRect() : null;
+    if (rect) {
+      const padding = 8;
+      const popoverHeight = 120;
+      let top = rect.bottom + padding;
+      if (top + popoverHeight > window.innerHeight - 16) top = rect.top - popoverHeight - padding;
+      conceptPopoverEl.style.top = Math.max(12, top) + "px";
+      conceptPopoverEl.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - 12 - 320)) + "px";
+      conceptPopoverEl.style.transform = "";
+    } else {
+      conceptPopoverEl.style.top = "80px";
+      conceptPopoverEl.style.left = "50%";
+      conceptPopoverEl.style.transform = "translateX(-50%)";
+    }
+    conceptPopoverHideTimer = setTimeout(hideConceptPopover, CONCEPT_POPOVER_DURATION_MS);
+  }
+
+  if (conceptPopoverCloseBtn) conceptPopoverCloseBtn.addEventListener("click", hideConceptPopover);
+  document.addEventListener("click", (e) => {
+    if (!conceptPopoverEl || conceptPopoverEl.hidden) return;
+    if (conceptPopoverEl.contains(e.target)) return;
+    hideConceptPopover();
+  });
 
   let currentStreamId = null;
   let currentYourTurnSegmentId = null;
@@ -39,6 +84,66 @@
     con2: "Albert Camus",
     con3: "Isaac Newton"
   };
+
+  /** Concept glossary for "novel concept" popover: phrase → explanation. Sorted by phrase length desc for longest-match first. */
+  const CONCEPT_GLOSSARY = [
+    { phrase: "banality of evil", explanation: "The idea that great harm can be done by ordinary people following procedures without questioning them (Arendt)." },
+    { phrase: "Goodhart's law", explanation: "When a measure becomes a target, it ceases to be a good measure—people optimize for the metric rather than the goal." },
+    { phrase: "commodity fetishism", explanation: "Treating social relations as relations between things; the abstraction of labour and value into exchange (Marx)." },
+    { phrase: "universalization test", explanation: "A principle is morally acceptable only if one could will it as a universal law for everyone (Kant)." },
+    { phrase: "persons as ends", explanation: "Treating people as ends in themselves, never merely as means to an end (Kant)." },
+    { phrase: "categorical imperative", explanation: "Act only on maxims that you could will to become universal law; never treat persons merely as means (Kant)." },
+    { phrase: "the Other", explanation: "The symbolic order or social authority that shapes desire and recognition (Lacan)." },
+    { phrase: "sliding signifier", explanation: "A signifier that has no fixed meaning and shifts depending on context and desire (Lacan)." },
+    { phrase: "signifier", explanation: "A unit of language that carries meaning in relation to other signifiers rather than a fixed referent (Lacan)." },
+    { phrase: "moral hazard", explanation: "When one party is insulated from the consequences of their actions, they may take more risk." },
+    { phrase: "adversarial robustness", explanation: "A system's ability to remain correct when inputs are deliberately designed to break or fool it." },
+    { phrase: "falsifiability", explanation: "A claim is scientific only if it can in principle be disproven by observation (Popper)." },
+    { phrase: "slippery slope", explanation: "The argument that one step will lead to a chain of worse consequences." },
+    { phrase: "efficiency is not innocence", explanation: "A procedure can be administratively clean while still producing unjust or cruel outcomes." },
+    { phrase: "clean procedure", explanation: "A process that appears neutral but may hide who bears the cost or who decides." },
+    { phrase: "ideology", explanation: "Beliefs that present contingent social arrangements as natural or inevitable (Marx/critical theory)." },
+    { phrase: "structural dependence", explanation: "When one group's options are determined by institutional rules and power rather than choice alone." },
+    { phrase: "who bears the cost", explanation: "The question of who pays when a policy fails or has unintended effects." },
+    { phrase: "incentive distortion", explanation: "When rules or metrics change behaviour in ways that undermine the original goal." },
+    { phrase: "governance vacuum", explanation: "A situation where no one is clearly accountable for decisions or their consequences." },
+    { phrase: "human in the loop", explanation: "Keeping a human responsible for final or override decisions in an automated system." },
+    { phrase: "appeal", explanation: "A right or mechanism to contest a decision before an independent body." },
+    { phrase: "override", explanation: "A mechanism allowing a human or authority to overrule an automated outcome." },
+    { phrase: "scope", explanation: "Defining what is inside and outside the domain of a rule or system." },
+    { phrase: "audit", explanation: "Independent review of how a system or process performed and whether it met standards." },
+    { phrase: "Myth of Sisyphus", explanation: "Camus's essay on finding meaning in the face of the absurd—revolt and lucidity." },
+    { phrase: "the absurd", explanation: "The conflict between the human need for meaning and the silent indifference of the world (Camus)." },
+    { phrase: "mere means", explanation: "Using someone only as an instrument for another end, without regard for their dignity (Kant)." },
+    { phrase: "cannot universalize", explanation: "A maxim that cannot be consistently willed as a universal law is morally inadmissible (Kant)." },
+    { phrase: "self-contradictory", explanation: "A claim or maxim that contradicts itself when applied universally (Kant)." },
+    { phrase: "hidden bargain", explanation: "The unstated trade-off or cost that a proposal implicitly asks others to accept." },
+    { phrase: "master word", explanation: "A key term that organizes an entire argument and carries unstated assumptions." },
+    { phrase: "frame", explanation: "The way a problem or issue is defined, which shapes what counts as a solution." },
+    { phrase: "fantasy", explanation: "The narrative or scenario that makes a policy or desire seem coherent (Lacan)." },
+    { phrase: "desire", explanation: "In Lacan: desire is structured by language and the Other, not a simple want." },
+    { phrase: "extraction", explanation: "Taking value or control from a group without equivalent return; often used in political economy." },
+    { phrase: "contestability", explanation: "The ability of those affected to challenge a decision or rule." }
+  ].sort((a, b) => (b.phrase.length - a.phrase.length));
+
+  function detectConcept(text) {
+    if (!text || typeof text !== "string") return null;
+    const t = text.trim();
+    if (!t) return null;
+    const lower = t.toLowerCase();
+    for (let i = 0; i < CONCEPT_GLOSSARY.length; i++) {
+      const { phrase, explanation } = CONCEPT_GLOSSARY[i];
+      const idx = lower.indexOf(phrase.toLowerCase());
+      if (idx === -1) continue;
+      const before = idx === 0 ? " " : t[idx - 1];
+      const after = idx + phrase.length >= t.length ? " " : t[idx + phrase.length];
+      const wordChar = /[a-zA-Z0-9']/;
+      if (wordChar.test(before) || wordChar.test(after)) continue;
+      return { concept: phrase, explanation };
+    }
+    return null;
+  }
+
   function getDisplayName(speakerId, fallbackLabel) {
     return (speakerId && SPEAKER_DISPLAY_NAMES[speakerId]) || fallbackLabel || "Speaker";
   }
@@ -635,7 +740,7 @@
       let span = null;
       if (!item.isObjection && !item.isRuling) {
         span = createTranscriptLine(getDisplayName(item.speakerId, item.speakerLabel), item.roleType || "debater", side, item.speakerId, true, "speech", speechMeta);
-        transcriptTurns.push({
+        const turn = {
           speakerId: item.speakerId || undefined,
           speakerLabel: getDisplayName(item.speakerId, item.speakerLabel),
           text: text || "",
@@ -643,10 +748,18 @@
           turnIndex: transcriptTurns.length + 1,
           type: "speech",
           meta: speechMeta || undefined
-        });
-      }
-      if (!item.isObjection && !item.isRuling) {
+        };
+        transcriptTurns.push(turn);
         runTypewriter(span || document.createElement("span"), text, typewriterDurationMs, () => onUtteranceDone(), currentSpeechText);
+        // Defer concept detection so it never blocks audio/text sync; popover after a short delay
+        setTimeout(() => {
+          const hit = text ? detectConcept(text) : null;
+          if (hit && span && span.parentElement) {
+            turn.concept = hit.concept;
+            turn.explanation = hit.explanation;
+            setTimeout(() => showConceptPopover(span.parentElement, hit.concept, hit.explanation), 800);
+          }
+        }, 0);
       }
     }
     const { voice, rate, pitch, volume } = VOICE_MANAGER.pick(item.speakerId, item.roleType);
@@ -767,7 +880,7 @@
     const type = entryType || "speech";
     const textSpan = createTranscriptLine(displayName, roleType || "debater", side, speakerId, false, type, meta);
     textSpan.textContent = text || "";
-    transcriptTurns.push({
+    const turn = {
       speakerId: speakerId || undefined,
       speakerLabel: displayName,
       text: text || "",
@@ -775,7 +888,16 @@
       turnIndex: transcriptTurns.length + 1,
       type,
       meta: meta || undefined
-    });
+    };
+    transcriptTurns.push(turn);
+    if (type === "speech" && text) {
+      const hit = detectConcept(text);
+      if (hit) {
+        turn.concept = hit.concept;
+        turn.explanation = hit.explanation;
+        showConceptPopover(textSpan.parentElement, hit.concept, hit.explanation);
+      }
+    }
   }
 
   function isApiErrorText(text) {

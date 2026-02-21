@@ -858,6 +858,63 @@ button:focus-visible {
   line-height: 1.5;
 }
 
+/* Novel concept popover: small card when a debater uses a glossary term */
+.concept-popover {
+  position: fixed;
+  z-index: 1200;
+  max-width: 320px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: auto;
+}
+.concept-popover[hidden] {
+  display: none !important;
+}
+.concept-popover:not([hidden]) {
+  display: block;
+  animation: concept-popover-in 0.2s ease-out;
+}
+@keyframes concept-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.concept-popover__title {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+.concept-popover__body {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.concept-popover__close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+}
+.concept-popover__close:hover {
+  color: var(--text-primary);
+}
+
 .transcript-speaker {
   display: none;
 }
